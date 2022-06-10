@@ -1,49 +1,15 @@
+// SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.2;
 
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/token/common/ERC2981.sol";
 import "../interfaces/IVendingMachine.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "./SubsciptionService.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";	
+import "./SubscriptionService.sol";
 import "./BoxJsonParser.sol";
 
-abstract contract HasSecondaryBoxSaleFees is ERC165, BoxJsonParser {
-    
-    address payable teamAddress;
-    uint256 teamSecondaryBps;  
-        
-   /*
-    * bytes4(keccak256('getFeeBps(uint256)')) == 0x0ebd4c7f
-    * bytes4(keccak256('getFeeRecipients(uint256)')) == 0xb9c4d9fb
-    *
-    * => 0x0ebd4c7f ^ 0xb9c4d9fb == 0xb7799584
-    */
-    
-    bytes4 private constant _INTERFACE_ID_FEES = 0xb7799584;
-    
-    constructor() {
-        // _registerInterface(_INTERFACE_ID_FEES);
-    }
 
-	function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
-        return interfaceId == _INTERFACE_ID_FEES
-            || super.supportsInterface(interfaceId);
-    }
-
-    function getFeeRecipients(uint256 id) public view returns (address payable[] memory){
-        address payable[] memory addressArray = new address payable[](1);
-        addressArray[0] = teamAddress;
-        return addressArray;
-    }
-    
-    function getFeeBps(uint256 id) public view returns (uint[] memory){
-        uint[] memory bpsArray = new uint[](1);
-        bpsArray[0] = teamSecondaryBps; 
-        return bpsArray;
-    }
- 
-}
-
-contract NFTBoxesBox is ERC721("NFTBox", "[BOX]"), Ownable, HasSecondaryBoxSaleFees {
+contract NFTBoxesBox is ERC721("NFTBox", "[BOX]"), Ownable, ERC2981, BoxJsonParser {
     
 	struct BoxMould{
 		uint8				live; // bool
@@ -114,10 +80,14 @@ contract NFTBoxesBox is ERC721("NFTBox", "[BOX]"), Ownable, HasSecondaryBoxSaleF
 	}
 
 
-	function supportsInterface(bytes4 interfaceId) public view override(ERC721, HasSecondaryBoxSaleFees) returns (bool) {
-        return HasSecondaryBoxSaleFees.supportsInterface(interfaceId)
+	function supportsInterface(bytes4 interfaceId) public view override(ERC721, ERC2981) returns (bool) {
+        return ERC2981.supportsInterface(interfaceId)
             || ERC721.supportsInterface(interfaceId);
     }
+
+	function setDefaultRoyalty(address _receiver, uint96 _feeNumerator) external onlyOwner {
+		_setDefaultRoyalty(_receiver, _feeNumerator);
+	} 
 
 	function updateURI(string memory newURI) public onlyOwner {
 		baseUri = newURI;
@@ -166,7 +136,6 @@ contract NFTBoxesBox is ERC721("NFTBox", "[BOX]"), Ownable, HasSecondaryBoxSaleF
 	function createBoxMould(
 		uint128 _max,
 		uint128 _maxBuyAmount,
-		uint128 _reserve,
 		uint256 _price,
 		address payable[] memory _artists,
 		uint256[] memory _shares,
@@ -178,7 +147,6 @@ contract NFTBoxesBox is ERC721("NFTBox", "[BOX]"), Ownable, HasSecondaryBoxSaleF
 		external
 		onlyOwner {
 		require(_artists.length == _shares.length, "arrays !same len");
-		require(_reserve <= _max, "!mint");
 		boxMoulds[boxMouldCount + 1] = BoxMould({
 			live: uint8(0),
 			shared: uint8(0),
@@ -222,7 +190,7 @@ contract NFTBoxesBox is ERC721("NFTBox", "[BOX]"), Ownable, HasSecondaryBoxSaleF
 	function distributeBoxToSubHolders(uint256 _id) external onlyOwner {
 		require(_id <= boxMouldCount && _id > 0, "ID !exist");
 		uint256 trackerId = subDistroTracker[_id]++;
-		require(trackerId < 10, "Distro done");
+		require(trackerId < 6, "Distro done");
 
 		BoxMould storage boxMould = boxMoulds[_id];
 		uint128 currentEdition = boxMould.currentEditionCount;
@@ -339,14 +307,6 @@ contract NFTBoxesBox is ERC721("NFTBox", "[BOX]"), Ownable, HasSecondaryBoxSaleF
 	function getArtistShares(uint256 _id) external view returns (uint256[] memory) {
 		return boxMoulds[_id].shares;
 	}
-
-    function updateTeamAddress(address payable newTeamAddress) public onlyOwner {
-        teamAddress = newTeamAddress;
-    }
-    
-    function updateSecondaryFee(uint256 newSecondaryBps) public onlyOwner {
-        teamSecondaryBps = newSecondaryBps;
-    }
 
     function getBoxMetaData(uint256 _id) external view returns 
     (uint256 boxId, uint256 boxEdition, uint128 boxMax, string memory boxName, string memory boxSeries, string memory boxTheme, string memory boxHashIPFS, string memory boxHashArweave) {
